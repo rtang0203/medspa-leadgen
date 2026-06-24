@@ -1,0 +1,18 @@
+[project]
+name = "medspa-leads"
+version = "0.1.0"
+description = "Med-Spa Lead Discovery & Qualification Pipeline"
+requires-python = ">=3.10"
+dependencies = [
+    "requests",
+    "beautifulsoup4",
+    "python-dotenv",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+llm = [
+    "anthropic",
+]
