@@ -1,8 +1,8 @@
 import os
 from dotenv import load_dotenv
 
-# Load environment variables from .env (override=True so .env wins over shell env)
-load_dotenv(override=True)
+# Load environment variables from .env 
+load_dotenv()
 
 # Database Config
 DB_PATH = os.getenv("DB_PATH", "leads.db")
