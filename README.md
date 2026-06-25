@@ -11,6 +11,10 @@ A human reviews, edits, and sends. **The system never sends anything itself.**
 No API keys needed — mock mode generates realistic sample data so you can see the full pipeline in action:
 
 ```bash
+# Set up virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
 # Install dependencies
 pip3 install -r requirements.txt
 
@@ -140,7 +144,7 @@ medspa-leadgen/
 │   ├── test_booking_detect.py  # 9 tests with HTML fixtures
 │   ├── test_integration.py     # 4 E2E pipeline tests (mock mode)
 │   └── fixtures/               # Sample HTML pages for offline testing
-├── pyproject.toml
+├── requirements.txt
 ├── .env.example
 ├── .gitignore
 └── SPEC.md                     # Original build specification
