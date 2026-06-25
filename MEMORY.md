@@ -29,6 +29,14 @@
 - **Decision:** Protocol-based `EmailFinder` with `StubEmailFinder` (real mode, returns not_attempted) and `MockEmailFinder` (test mode, returns simulated results). Gated by score threshold.
 - **Why:** Follows spec §6.5 exactly — the seam is defined, provider wiring is deferred. Credits spent only on high-scoring prospects.
 
+### 7. Export All Businesses (2026-06-25)
+- **Decision:** Remove score threshold from export/table/CSV — show ALL discovered businesses ranked by score, not just those ≥ GOOD_LEAD_THRESHOLD.
+- **Why:** User wants full visibility into all found businesses regardless of score.
+- **Rejected:** Keeping the threshold filter — user explicitly requested all results.
+
+### 8. Generate Hooks for All Businesses (2026-06-25)
+- **Decision:** Remove score gate from hook generation — generate hooks for all businesses, not just high-scorers.
+- **Why:** Since all businesses are now exported, they all need hooks. GOOD_LEAD_THRESHOLD still exists in config for potential future use.
 ---
 
 ## Session Summary (2026-06-23)
@@ -52,5 +60,52 @@
 - Wire real Google Places API key and test with live data
 - Wire Anthropic API key for LLM-generated hooks
 - Tune scoring weights against real metro output
+- Consider Playwright for JS-rendered booking widget detection (measure false-negative rate first)
+- Wire a real email finder provider (Hunter/Apollo) behind the EmailFinder interface
+
+## 2026-06-25: dotenv Override Bug
+
+### 9. load_dotenv override=True
+- **Decision:** Changed `load_dotenv()` to `load_dotenv(override=True)` in config.py.
+- **Why:** VS Code's `python.terminal.useEnvFile` injects env vars into the shell (empty API keys, MOCK_MODE=true). `load_dotenv()` by default does NOT override existing env vars, so .env values were silently ignored. This caused MOCK_MODE to stay True and mock data to be generated despite real keys being in .env.
+- **Symptom:** API keys appeared unset, MOCK_MODE was True, mock businesses generated alongside real ones.
+
+### 10. Anthropic API — credits and model update
+- **Note:** Anthropic API key is valid but account initially had zero credits (400 error). After adding credits, discovered `claude-3-haiku-20240307` was retired (404). Updated to `claude-haiku-4-5-20251001`.
+
+### 11. Booking detection broadened (2026-06-25)
+- **Decision:** Added 9 new booking platform signatures (GlossGenius, Zenoti, Booksy, Fresha, Jane, Mangomint, Aesthetic Record, Pabau, Setmore). Broadened link detection to match any `<a>` with "book"/"schedule" in text or href. Added `<button>`/`<input>` scanning. Removed body-text matching to avoid false positives on prose.
+- **Why:** Real-world sites like chicagomedspa.com (GlossGenius) and viomedspa.com (Zenoti) were incorrectly flagged as `no_booking`.
+- **Rejected:** Headless browser approach — too slow for 40+ sites per metro. The HTML-first approach catches most cases now.
+
+### 12. Use requirements.txt, not pyproject.toml (2026-06-25)
+- **Decision:** Added `requirements.txt` as the primary dependency file. `pyproject.toml` still exists but `requirements.txt` is what README references.
+- **Why:** Simpler, more widely recognized. Not publishing to PyPI.
+
+---
+
+## Session Summary (2026-06-25)
+
+### Worked on
+- First real-data run with live Google Places and Anthropic API keys
+- Debugging .env loading, API connectivity, and booking detection accuracy
+
+### Completed
+- Fixed `load_dotenv(override=True)` — .env values now override shell env vars
+- Updated Anthropic model from retired `claude-3-haiku-20240307` to `claude-haiku-4-5-20251001`
+- Removed score threshold gating from export and hook generation — all businesses now included
+- Broadened booking detection: 9 new platforms, generic link/button matching, false-positive guard
+- Added 6 new booking detection tests (9 total), updated integration test
+- Added `requirements.txt`, updated README for accuracy
+- 20/20 tests passing
+
+### Decisions made
+- `load_dotenv(override=True)` is the default going forward
+- `requirements.txt` over `pyproject.toml` for deps (recorded in global CLAUDE.md)
+- MEMORY.md and ERRORS.md gitignored; SPEC.md, CHANGELOG.md, README.md tracked
+
+### Next session priorities
+- Test with additional metros and get feedback
+- Tune scoring weights against real data
 - Consider Playwright for JS-rendered booking widget detection (measure false-negative rate first)
 - Wire a real email finder provider (Hunter/Apollo) behind the EmailFinder interface

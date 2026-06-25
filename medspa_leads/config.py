@@ -1,8 +1,8 @@
 import os
 from dotenv import load_dotenv
 
-# Load environment variables from .env
-load_dotenv()
+# Load environment variables from .env (override=True so .env wins over shell env)
+load_dotenv(override=True)
 
 # Database Config
 DB_PATH = os.getenv("DB_PATH", "leads.db")
@@ -16,9 +16,10 @@ MOCK_MODE = os.getenv("MOCK_MODE", "true").lower() in ("true", "1", "yes") or no
 
 # Default Metros
 DEFAULT_METROS = [
+    "Chicago, IL",
+    "Milwaukee, WI",
+    "Minneapolis, MN",
     "Austin, TX",
-    "Dallas, TX",
-    "Houston, TX"
 ]
 
 # Scoring Weights

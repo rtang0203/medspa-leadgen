@@ -12,9 +12,18 @@ BOOKING_SIGNATURES = {
     "vagaro": ["vagaro.com"],
     "mindbody": ["mindbodyonline.com", "mindbody.io"],
     "boulevard": ["joinblvd.com", "blvd.com", "boulevard.com"],
-    "square": ["square.site", "squareup.com/appointments", "square.site/book"],
+    "square": ["square.site", "squareup.com/appointments"],
     "acuity": ["acuityscheduling.com"],
     "calendly": ["calendly.com"],
+    "glossgenius": ["glossgenius.com"],
+    "zenoti": ["zenoti.com"],
+    "booksy": ["booksy.com"],
+    "fresha": ["fresha.com"],
+    "jane": ["janeapp.com"],
+    "mangomint": ["mangomint.com"],
+    "aesthetic_record": ["aestheticrecord.com"],
+    "pabau": ["pabau.com"],
+    "setmore": ["setmore.com"],
 }
 
 def detect_booking_platform(html: str, soup: BeautifulSoup) -> Tuple[int, Optional[str]]:
@@ -39,16 +48,18 @@ def detect_booking_platform(html: str, soup: BeautifulSoup) -> Tuple[int, Option
                 if sig in href:
                     return 1, platform
                     
-        # Check for generic booking terms in href or link text
+        # Check for "book" or "schedule" in link text or href
         link_text = link.get_text().lower()
-        generic_terms = ["book-now", "booknow", "booking", "schedule-appointment", "book-online", "online-booking"]
-        if any(term in href for term in generic_terms) or any(term in link_text for term in ["book online", "book now", "schedule online", "schedule appointment"]):
+        if any(w in href for w in ("book", "schedul", "appointment")) or any(w in link_text for w in ("book", "schedule")):
             return 1, "other"
-            
-    # 3. Check generic booking text in the page body (less reliable but useful signal)
-    # E.g. "Book an Appointment", "Schedule Online"
-    if "book online" in html_lower or "book an appointment" in html_lower or "schedule now" in html_lower:
-        return 1, "other"
+
+    # 3. Check for booking buttons/CTAs — look for booking text inside clickable elements
+    #    (buttons, inputs, spans with onclick). Avoids false positives from prose like
+    #    "call us to book your appointment."
+    for el in soup.find_all(["button", "input"]):
+        el_text = (el.get("value", "") + " " + el.get_text()).lower()
+        if any(w in el_text for w in ("book", "schedule")):
+            return 1, "other"
         
     return 0, None
 
@@ -91,7 +102,7 @@ def enrich_booking_details(biz: Dict[str, Any]) -> Dict[str, Any]:
     
     try:
         headers = {"User-Agent": USER_AGENT}
-        response = requests.get(url, headers=headers, timeout=10, allow_redirects=True)
+        response = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
         response.raise_for_status()
         
         soup = BeautifulSoup(response.text, "html.parser")

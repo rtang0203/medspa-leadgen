@@ -143,8 +143,8 @@ def get_businesses_to_enrich(stage: str) -> List[Dict[str, Any]]:
     elif stage == "enrich_contact":
         cursor.execute("SELECT * FROM businesses WHERE email_status = 'not_attempted'")
     elif stage == "hooks":
-        # Only generate hooks for businesses that have been scored and have high scores
-        cursor.execute("SELECT * FROM businesses WHERE hook_generated_at IS NULL AND deficiency_score >= ?", (config.GOOD_LEAD_THRESHOLD,))
+        # Generate hooks for all scored businesses
+        cursor.execute("SELECT * FROM businesses WHERE hook_generated_at IS NULL")
     else:
         cursor.execute("SELECT * FROM businesses")
         

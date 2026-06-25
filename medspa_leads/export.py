@@ -5,18 +5,17 @@ from . import db
 from . import config
 
 def get_qualified_leads() -> List[Dict[str, Any]]:
-    """Fetch qualified leads from the database, ordered by score descending."""
+    """Fetch all leads from the database, ordered by score descending."""
     conn = db.get_db_connection()
     cursor = conn.cursor()
     
-    # Select leads that meet threshold and are 'new'
+    # Select all scored businesses, ordered by score
     cursor.execute(
         """
         SELECT * FROM businesses 
-        WHERE deficiency_score >= ? AND review_status = 'new'
+        WHERE review_status = 'new'
         ORDER BY deficiency_score DESC, review_count DESC
-        """,
-        (config.GOOD_LEAD_THRESHOLD,)
+        """
     )
     rows = cursor.fetchall()
     conn.close()
@@ -26,8 +25,7 @@ def export_to_csv(filepath: str = "review_queue.csv") -> int:
     """Export qualified leads to a CSV file."""
     leads = get_qualified_leads()
     if not leads:
-        db.log_event(None, "export", "warn", "No qualified leads found to export.")
-        return 0
+        db.log_event(None, "export", "warn", "No leads found to export.")
         
     headers = [
         "name", "metro", "deficiency_score", "primary_deficiency", 
@@ -71,10 +69,10 @@ def export_to_csv(filepath: str = "review_queue.csv") -> int:
         return 0
 
 def print_console_table():
-    """Print a clean, readable console table of qualified leads."""
+    """Print a clean, readable console table of all discovered leads."""
     leads = get_qualified_leads()
     if not leads:
-        print("\nNo qualified leads in the queue.")
+        print("\nNo leads in the queue.")
         return
         
     print(f"\n--- Ranked Review Queue ({len(leads)} Leads) ---")

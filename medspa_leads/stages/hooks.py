@@ -95,7 +95,7 @@ def generate_llm_hook(biz: Dict[str, Any]) -> str:
     )
     
     body = {
-        "model": "claude-3-haiku-20240307",
+        "model": "claude-haiku-4-5-20251001",
         "max_tokens": 100,
         "system": system_prompt,
         "messages": [
@@ -121,10 +121,10 @@ def generate_llm_hook(biz: Dict[str, Any]) -> str:
         return generate_template_hook(biz)
 
 def run_generate_hooks():
-    """Generate hook text for all high-scoring qualified leads that lack hooks."""
+    """Generate hook text for all leads that lack hooks."""
     db.log_event(None, "hooks", "info", "Starting hook generation stage")
     businesses = db.get_businesses_to_enrich("hooks")
-    print(f"Found {len(businesses)} qualified leads needing hooks.")
+    print(f"Found {len(businesses)} businesses needing hooks.")
     
     generated_count = 0
     for biz in businesses:

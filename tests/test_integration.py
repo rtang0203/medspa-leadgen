@@ -69,17 +69,10 @@ class TestFullPipeline(unittest.TestCase):
         for biz in all_biz:
             self.assertIsNotNone(biz["social_checked_at"])
 
-        # Qualified leads have hooks
-        qualified = [b for b in all_biz if b["deficiency_score"] >= config.GOOD_LEAD_THRESHOLD]
-        self.assertGreater(len(qualified), 0, "Should have at least one qualified lead")
-        for biz in qualified:
-            self.assertIsNotNone(biz["hook_text"], f"Qualified lead {biz['name']} should have a hook")
+        # All leads have hooks (no score gating)
+        for biz in all_biz:
+            self.assertIsNotNone(biz["hook_text"], f"Lead {biz['name']} should have a hook")
             self.assertGreater(len(biz["hook_text"]), 10, "Hook should be non-trivial")
-
-        # Non-qualified leads do NOT have hooks
-        non_qualified = [b for b in all_biz if (b["deficiency_score"] or 0) < config.GOOD_LEAD_THRESHOLD]
-        for biz in non_qualified:
-            self.assertIsNone(biz["hook_text"], f"Non-qualified lead {biz['name']} should not have a hook")
 
     def test_csv_export(self):
         """Verify CSV export contains expected columns and data."""

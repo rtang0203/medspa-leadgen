@@ -21,3 +21,8 @@ venv/
 # Runtime artifacts
 leads.db
 review_queue.csv
+
+
+# Agent working notes
+MEMORY.md
+ERRORS.md

@@ -12,7 +12,7 @@ No API keys needed — mock mode generates realistic sample data so you can see 
 
 ```bash
 # Install dependencies
-pip3 install -r requirements.txt   # or: pip3 install requests beautifulsoup4 python-dotenv
+pip3 install -r requirements.txt
 
 # Run the pipeline
 python3 cli.py run --metros "Austin, TX"
@@ -39,7 +39,7 @@ python3 cli.py run --metros "Austin, TX"
 **Anthropic API setup:**
 1. Go to [console.anthropic.com](https://console.anthropic.com/)
 2. Create an API key
-3. The pipeline uses `claude-3-haiku` (cheapest/fastest model) — cost is negligible
+3. The pipeline uses `claude-haiku-4-5` (cheapest/fastest model) — cost is negligible
 
 ### 2. Configure Environment
 
@@ -90,7 +90,7 @@ discover → enrich_site → enrich_booking → enrich_social → score → enri
 |-------|-------------|-------------|
 | **Discovery** | Finds med-spas in a metro | Google Places Text Search API |
 | **Site Enrichment** | Fetches homepage, detects platform (Wix/Squarespace/WordPress/etc), checks SSL and mobile-friendliness | HTTP fetch + HTML analysis |
-| **Booking Enrichment** | Scans HTML for booking widget signatures (Vagaro, Mindbody, Boulevard, Square, Acuity, Calendly) | HTML fingerprinting |
+| **Booking Enrichment** | Scans HTML for booking widget signatures (Vagaro, Mindbody, Boulevard, Square, Acuity, Calendly, GlossGenius, Zenoti, Booksy, Fresha, Jane, Mangomint, and others) plus generic "book"/"schedule" link detection | HTML fingerprinting |
 | **Social Enrichment** | Finds Instagram/Facebook links on the website, estimates activity status | HTML link scanning |
 | **Scoring** | Calculates a deficiency score based on missing/weak web presence signals | Pure logic over DB fields |
 | **Contact Enrichment** | Finds contact forms, scrapes emails from HTML, calls EmailFinder API for high-scoring leads | HTML scraping + pluggable API |
@@ -111,7 +111,7 @@ Each deficiency adds to the score. Higher score = worse web presence = better pr
 | `no_social` | 1 | No social links found |
 | `reviews_vs_web` (bonus) | +2 | 100+ reviews AND any web deficiency — "clearly busy, clearly leaking" |
 
-Leads with `deficiency_score >= 4` (configurable in `medspa_leads/config.py`) are qualified for hook generation and contact enrichment.
+Leads with `deficiency_score >= 4` (configurable in `medspa_leads/config.py`) are qualified for contact enrichment via email-finder APIs.
 
 ---
 
@@ -137,15 +137,13 @@ medspa-leadgen/
 │       └── hooks.py            # LLM hook generation (Anthropic or templates)
 ├── tests/
 │   ├── test_score.py           # 7 unit tests for scoring logic
-│   ├── test_booking_detect.py  # 3 tests with HTML fixtures
-│   ├── test_integration.py     # 4 E2E pipeline tests
+│   ├── test_booking_detect.py  # 9 tests with HTML fixtures
+│   ├── test_integration.py     # 4 E2E pipeline tests (mock mode)
 │   └── fixtures/               # Sample HTML pages for offline testing
 ├── pyproject.toml
 ├── .env.example
 ├── .gitignore
-├── SPEC.md                     # Original build specification
-├── CHANGELOG.md                # Build progress log
-└── MEMORY.md                   # Architectural decisions log
+└── SPEC.md                     # Original build specification
 ```
 
 ---
@@ -185,7 +183,7 @@ pip3 install pytest
 python3 -m pytest tests/ -v
 ```
 
-All 14 tests run in ~0.2 seconds using mock data (no API calls).
+All 20 tests run in ~0.2 seconds using mock data (no API calls).
 
 ---
 
@@ -194,7 +192,7 @@ All 14 tests run in ~0.2 seconds using mock data (no API calls).
 With real API keys:
 
 - **Google Places:** ~3 Text Search calls per metro (one per query variant) + 1 Details call per new business. Expect ~$5–15 per metro depending on result count. The pipeline caches metro discovery for 7 days to avoid redundant calls.
-- **Anthropic:** One `claude-3-haiku` call per qualified lead (~4–8 per metro). Cost is under $0.01 per metro.
+- **Anthropic:** One `claude-haiku-4-5` call per lead. Cost is under $0.01 per metro.
 - **Email finder:** Stubbed out for PoC. Wire a provider (Hunter, Apollo, Dropcontact) into `medspa_leads/stages/enrich_contact.py` by implementing the `EmailFinder` protocol.
 
 ---
