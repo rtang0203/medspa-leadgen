@@ -11,10 +11,11 @@ def get_db_connection() -> sqlite3.Connection:
 
 def init_db():
     conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # Create businesses table
-    cursor.execute("""
+    try:
+        cursor = conn.cursor()
+        
+        # Create businesses table
+        cursor.execute("""
     CREATE TABLE IF NOT EXISTS businesses (
         place_id            TEXT PRIMARY KEY,
         name                TEXT NOT NULL,
@@ -62,9 +63,9 @@ def init_db():
         notes               TEXT
     );
     """)
-    
-    # Create events table
-    cursor.execute("""
+        
+        # Create events table
+        cursor.execute("""
     CREATE TABLE IF NOT EXISTS events (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         place_id    TEXT,
@@ -74,30 +75,34 @@ def init_db():
         created_at  TEXT
     );
     """)
-    
-    conn.commit()
-    conn.close()
+        
+        conn.commit()
+    finally:
+        conn.close()
 
 def log_event(place_id: Optional[str], stage: str, level: str, message: str):
     conn = get_db_connection()
-    cursor = conn.cursor()
-    now_iso = datetime.datetime.now().isoformat()
-    cursor.execute(
-        "INSERT INTO events (place_id, stage, level, message, created_at) VALUES (?, ?, ?, ?, ?)",
-        (place_id, stage, level, message, now_iso)
-    )
-    conn.commit()
-    conn.close()
+    try:
+        cursor = conn.cursor()
+        now_iso = datetime.datetime.now().isoformat()
+        cursor.execute(
+            "INSERT INTO events (place_id, stage, level, message, created_at) VALUES (?, ?, ?, ?, ?)",
+            (place_id, stage, level, message, now_iso)
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 def upsert_business(biz: Dict[str, Any]):
     conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # Ensure discovered_at is populated
-    if "discovered_at" not in biz or not biz["discovered_at"]:
-        biz["discovered_at"] = datetime.datetime.now().isoformat()
+    try:
+        cursor = conn.cursor()
         
-    query = """
+        # Ensure discovered_at is populated
+        if "discovered_at" not in biz or not biz["discovered_at"]:
+            biz["discovered_at"] = datetime.datetime.now().isoformat()
+            
+        query = """
     INSERT INTO businesses (
         place_id, name, metro, address, phone, website_url, rating, review_count, discovered_at
     ) VALUES (
@@ -111,54 +116,61 @@ def upsert_business(biz: Dict[str, Any]):
         rating = COALESCE(excluded.rating, rating),
         review_count = COALESCE(excluded.review_count, review_count)
     """
-    
-    cursor.execute(query, biz)
-    conn.commit()
-    conn.close()
+        
+        cursor.execute(query, biz)
+        conn.commit()
+    finally:
+        conn.close()
     log_event(biz["place_id"], "discover", "info", f"Upserted business: {biz['name']}")
 
 def update_business(place_id: str, updates: Dict[str, Any]):
     """Update an existing business record with the given fields."""
     conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    set_clause = ", ".join([f"{k} = ?" for k in updates.keys()])
-    values = list(updates.values())
-    values.append(place_id)
-    
-    query = f"UPDATE businesses SET {set_clause} WHERE place_id = ?"
-    cursor.execute(query, values)
-    conn.commit()
-    conn.close()
+    try:
+        cursor = conn.cursor()
+        
+        set_clause = ", ".join([f"{k} = ?" for k in updates.keys()])
+        values = list(updates.values())
+        values.append(place_id)
+        
+        query = f"UPDATE businesses SET {set_clause} WHERE place_id = ?"
+        cursor.execute(query, values)
+        conn.commit()
+    finally:
+        conn.close()
 
 def get_businesses_to_enrich(stage: str) -> List[Dict[str, Any]]:
     conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # Determine filter based on enrichment stage
-    if stage == "enrich_site":
-        cursor.execute("SELECT * FROM businesses WHERE site_fetched_at IS NULL")
-    elif stage == "enrich_booking":
-        cursor.execute("SELECT * FROM businesses WHERE booking_checked_at IS NULL")
-    elif stage == "enrich_social":
-        cursor.execute("SELECT * FROM businesses WHERE social_checked_at IS NULL")
-    elif stage == "enrich_contact":
-        cursor.execute("SELECT * FROM businesses WHERE email_status = 'not_attempted'")
-    elif stage == "hooks":
-        # Generate hooks for all scored businesses
-        cursor.execute("SELECT * FROM businesses WHERE hook_generated_at IS NULL")
-    else:
-        cursor.execute("SELECT * FROM businesses")
+    try:
+        cursor = conn.cursor()
         
-    rows = cursor.fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
+        # Determine filter based on enrichment stage
+        if stage == "enrich_site":
+            cursor.execute("SELECT * FROM businesses WHERE site_fetched_at IS NULL")
+        elif stage == "enrich_booking":
+            cursor.execute("SELECT * FROM businesses WHERE booking_checked_at IS NULL")
+        elif stage == "enrich_social":
+            cursor.execute("SELECT * FROM businesses WHERE social_checked_at IS NULL")
+        elif stage == "enrich_contact":
+            cursor.execute("SELECT * FROM businesses WHERE email_status = 'not_attempted'")
+        elif stage == "hooks":
+            # Generate hooks for all scored businesses
+            cursor.execute("SELECT * FROM businesses WHERE hook_generated_at IS NULL")
+        else:
+            cursor.execute("SELECT * FROM businesses")
+            
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
 
 def get_all_businesses() -> List[Dict[str, Any]]:
     """Return all businesses from the database ordered by score descending."""
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM businesses")
-    rows = cursor.fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM businesses")
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
