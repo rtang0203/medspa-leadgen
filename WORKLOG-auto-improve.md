@@ -35,3 +35,23 @@ Baseline gate: `venv/bin/python -m pytest -q` → **20 passed** ✓
 - **Files:** `medspa_leads/export.py`
 - **Gate:** Before: 20 passed. After: 20 passed ✓
 - **Commit:** `d1537bd00fb43a9120a5c4e4c9ba6e7cf4ce9c5b`
+
+---
+
+### fix: apply load_dotenv(override=True) per MEMORY.md decision #9
+
+- **What:** In `medspa_leads/config.py` line 5, changed `load_dotenv()` to `load_dotenv(override=True)`.
+- **Why:** MEMORY.md decision #9 (2026-06-25) explicitly records this change was needed so that values in `.env` override already-set shell environment variables. The decision was recorded but never applied to the source.
+- **Files:** `medspa_leads/config.py`
+- **Gate:** Before: 20 passed. After: 20 passed ✓
+- **Commit:** `31efe00`
+
+---
+
+### fix: add try/finally connection-leak guards to db.py
+
+- **What:** Wrapped the body of every database function in `try/finally` so `conn.close()` is guaranteed to run even if an exception is raised. Functions updated: `init_db`, `log_event`, `upsert_business`, `update_business`, `get_businesses_to_enrich`, `get_all_businesses`. The `log_event()` call at the end of `upsert_business` was kept outside the `try/finally` block (after `conn.close()`) because it opens its own independent connection.
+- **Why:** Without a `finally` guard, any exception raised between `get_db_connection()` and `conn.close()` (e.g. during `cursor.execute` or `conn.commit`) would leave the SQLite file handle open until the GC collected the connection object. In long-running enrichment pipelines this leads to resource exhaustion.
+- **Files:** `medspa_leads/db.py`
+- **Gate:** Before: 20 passed. After: 20 passed ✓
+- **Commit:** `0a6d823`
