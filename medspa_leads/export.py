@@ -111,4 +111,4 @@ def print_console_table() -> None:
         ))
         
     print(divider)
-    print("Run `export.py` to dump the full queue to review_queue.csv.\n")
+    print("Run `python3 cli.py export` to dump the full queue to review_queue.csv.\n")
