@@ -65,10 +65,10 @@
 
 ## 2026-06-25: dotenv Override Bug
 
-### 9. load_dotenv override=True
-- **Decision:** Changed `load_dotenv()` to `load_dotenv(override=True)` in config.py.
-- **Why:** VS Code's `python.terminal.useEnvFile` injects env vars into the shell (empty API keys, MOCK_MODE=true). `load_dotenv()` by default does NOT override existing env vars, so .env values were silently ignored. This caused MOCK_MODE to stay True and mock data to be generated despite real keys being in .env.
-- **Symptom:** API keys appeared unset, MOCK_MODE was True, mock businesses generated alongside real ones.
+### 9. load_dotenv override=True — REVERTED
+- **Original decision:** Changed `load_dotenv()` to `load_dotenv(override=True)` in config.py.
+- **Reverted (2026-06-28):** User intentionally removed `override=True`. The default `load_dotenv()` behavior (don't override existing env vars) is the desired behavior.
+- **Background:** VS Code's `python.terminal.useEnvFile` was the original symptom, but that was resolved separately. Keeping default dotenv behavior avoids unexpected env var overrides in production.
 
 ### 10. Anthropic API — credits and model update
 - **Note:** Anthropic API key is valid but account initially had zero credits (400 error). After adding credits, discovered `claude-3-haiku-20240307` was retired (404). Updated to `claude-haiku-4-5-20251001`.

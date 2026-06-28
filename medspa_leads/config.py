@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 
 # Load environment variables from .env 
-load_dotenv(override=True)
+load_dotenv()
 
 # Database Config
 DB_PATH = os.getenv("DB_PATH", "leads.db")
