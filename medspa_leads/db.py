@@ -4,6 +4,7 @@ from typing import Dict, Any, List, Optional
 from . import config
 
 def get_db_connection() -> sqlite3.Connection:
+    """Return a new SQLite connection to the leads database."""
     conn = sqlite3.connect(config.DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
@@ -117,6 +118,7 @@ def upsert_business(biz: Dict[str, Any]):
     log_event(biz["place_id"], "discover", "info", f"Upserted business: {biz['name']}")
 
 def update_business(place_id: str, updates: Dict[str, Any]):
+    """Update an existing business record with the given fields."""
     conn = get_db_connection()
     cursor = conn.cursor()
     
@@ -153,6 +155,7 @@ def get_businesses_to_enrich(stage: str) -> List[Dict[str, Any]]:
     return [dict(row) for row in rows]
 
 def get_all_businesses() -> List[Dict[str, Any]]:
+    """Return all businesses from the database ordered by score descending."""
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM businesses")

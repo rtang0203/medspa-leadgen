@@ -68,7 +68,7 @@ def export_to_csv(filepath: str = "review_queue.csv") -> int:
         print(f"Error exporting CSV: {e}", file=sys.stderr)
         return 0
 
-def print_console_table():
+def print_console_table() -> None:
     """Print a clean, readable console table of all discovered leads."""
     leads = get_qualified_leads()
     if not leads:
