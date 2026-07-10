@@ -109,3 +109,8 @@
 - Tune scoring weights against real data
 - Consider Playwright for JS-rendered booking widget detection (measure false-negative rate first)
 - Wire a real email finder provider (Hunter/Apollo) behind the EmailFinder interface
+
+## 2026-07-10: Dashboard competitor scraper
+
+- Added `dashboard-scrape` as a Supabase-only batch command that preserves the SQLite lead-generation flow; competitors and scrape snapshots are global by Google Place ID, while `tenant_competitors` holds each tenant's monitoring choice.
+- `dashboard-scrape` now batches every distinct primary-location metro once; `competitor_markets` retains global market provenance, completed-market cache markers prevent redundant Places calls, and tenant links synchronize afterward without overriding `tracked=false`.

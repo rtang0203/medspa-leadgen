@@ -11,6 +11,10 @@ DB_PATH = os.getenv("DB_PATH", "leads.db")
 GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY", "")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
+# Supabase (for dashboard competitor scraping)
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_SECRET_KEY = os.getenv("SUPABASE_SECRET_KEY", "")
+
 # Mock Mode: If keys are missing, default to True
 MOCK_MODE = os.getenv("MOCK_MODE", "true").lower() in ("true", "1", "yes") or not (GOOGLE_PLACES_API_KEY and ANTHROPIC_API_KEY)
 

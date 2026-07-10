@@ -35,6 +35,11 @@ Examples:
     
     # Export command
     subparsers.add_parser("export", help="Re-export the review queue from existing DB")
+
+    # Dashboard scrape command
+    dash_parser = subparsers.add_parser("dashboard-scrape", help="Scrape every primary-location market into Supabase")
+    dash_parser.add_argument("--mock", action="store_true", help="Use deterministic mock market data")
+    dash_parser.add_argument("--force", action="store_true", help="Bypass the seven-day market discovery cache")
     
     args = parser.parse_args()
     
@@ -53,6 +58,10 @@ Examples:
         csv_count = export.export_to_csv()
         export.print_console_table()
         print(f"Exported {csv_count} leads to review_queue.csv")
+
+    elif args.command == "dashboard-scrape":
+        from medspa_leads.dashboard import run_dashboard_scrape
+        run_dashboard_scrape(mock=args.mock, force=args.force)
         
     else:
         parser.print_help()

@@ -80,6 +80,41 @@ python3 cli.py run --metros "Austin, TX" --force
 python3 cli.py export
 ```
 
+### Dashboard competitor scrape
+
+This separate batch command discovers nearby competitors and records their Google
+reviews, website platform, booking provider, and social links in the benchmark
+dashboard's Supabase database. It runs once across every distinct normalized
+`metro` configured on tenant primary locations; it does not accept a tenant or
+metro argument.
+
+Every practice is stored once by Google Place ID. `competitor_markets` records
+which markets returned it, then the batch synchronizes `tenant_competitors` for
+every tenant whose primary location is in that market. Existing `tracked=false`
+choices are preserved. This does not affect the SQLite lead-generation flow.
+
+Primary-location metros must use an explicit normalized value such as
+`Chicago, IL`; do not use full street addresses as markets.
+
+Set `SUPABASE_URL` and `SUPABASE_SECRET_KEY` in `.env` to the dashboard's
+Supabase instance, then run:
+
+```bash
+# Scrape each unique primary-location metro once.
+python3 cli.py dashboard-scrape
+
+# Bypass the seven-day completed-market discovery cache.
+python3 cli.py dashboard-scrape --force
+
+# Deterministic fixture data for every seeded market; no Google key required.
+python3 cli.py dashboard-scrape --mock
+```
+
+A market is cached only after all three Google Places queries and their writes
+complete. The cache is independent of individual competitor snapshots, so an
+empty market is cached correctly and a partial failure is retried next run.
+
+
 ---
 
 ## How It Works
@@ -130,6 +165,7 @@ medspa-leadgen/
 │   ├── db.py                   # SQLite schema, upsert/query helpers, event logging
 │   ├── pipeline.py             # Orchestrates all 8 stages in order
 │   ├── export.py               # CSV + console table export
+│   ├── dashboard.py            # Supabase-backed dashboard competitor scraper
 │   └── stages/
 │       ├── __init__.py
 │       ├── discover.py         # Google Places API → upsert businesses
