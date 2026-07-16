@@ -37,9 +37,16 @@ Examples:
     subparsers.add_parser("export", help="Re-export the review queue from existing DB")
 
     # Dashboard scrape command
-    dash_parser = subparsers.add_parser("dashboard-scrape", help="Scrape every primary-location market into Supabase")
+    dash_parser = subparsers.add_parser("dashboard-scrape", help="Discover competitors and crawl pricing into Supabase")
     dash_parser.add_argument("--mock", action="store_true", help="Use deterministic mock market data")
-    dash_parser.add_argument("--force", action="store_true", help="Bypass the seven-day market discovery cache")
+    dash_parser.add_argument("--force", action="store_true", help="Bypass the seven-day market discovery and website crawl caches")
+    dash_parser.add_argument(
+        "--metro",
+        action="append",
+        dest="metros",
+        metavar="CITY_STATE",
+        help="Discover and crawl a specific metro; repeat for multiple metros instead of using tenant primary locations",
+    )
     
     args = parser.parse_args()
     
@@ -61,7 +68,10 @@ Examples:
 
     elif args.command == "dashboard-scrape":
         from medspa_leads.dashboard import run_dashboard_scrape
-        run_dashboard_scrape(mock=args.mock, force=args.force)
+        try:
+            run_dashboard_scrape(mock=args.mock, force=args.force, metros=args.metros)
+        except ValueError as error:
+            parser.error(str(error))
         
     else:
         parser.print_help()

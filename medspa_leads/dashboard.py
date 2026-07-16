@@ -1,16 +1,20 @@
 """Global competitor scraping batch for the benchmark dashboard.
 
-The batch loads every distinct metro from tenant primary locations, discovers each
-market once, stores global competitor observations, and synchronizes the tracked
-competitors for every tenant in that market.
+The batch discovers explicit metros or every distinct tenant primary-location
+metro, stores global competitor observations, and synchronizes tracked links
+only for tenant-backed markets.
 
 Usage:
     python3 cli.py dashboard-scrape
-    python3 cli.py dashboard-scrape --force
+    python3 cli.py dashboard-scrape --metro "Chicago, IL"
+    python3 cli.py dashboard-scrape --metro "Chicago, IL" --metro "Milwaukee, WI" --force
 """
 
 import datetime
+import hashlib
+from pathlib import Path
 import sys
+from urllib.parse import urlparse
 from collections.abc import Iterable
 
 import requests
@@ -18,6 +22,7 @@ from bs4 import BeautifulSoup
 from supabase import Client, create_client
 
 from medspa_leads import config
+from medspa_leads.competitor_pricing import PageDocument, crawl_competitor
 from medspa_leads.stages.enrich_booking import USER_AGENT, detect_booking_platform
 from medspa_leads.stages.enrich_site import detect_platform, is_mobile_friendly_proxy
 from medspa_leads.stages.enrich_social import find_social_links
@@ -36,6 +41,13 @@ def get_supabase() -> Client:
         print("Error: SUPABASE_URL and SUPABASE_SECRET_KEY must be set in .env")
         sys.exit(1)
     return create_client(config.SUPABASE_URL, config.SUPABASE_SECRET_KEY)
+
+
+def require_local_mock_target() -> None:
+    """Fixture crawls must never write mock competitors to a remote project."""
+    hostname = urlparse(config.SUPABASE_URL).hostname
+    if hostname not in {"localhost", "127.0.0.1", "::1"}:
+        raise ValueError("--mock only supports a local Supabase URL; use integration checks for remote fixture coverage.")
 
 
 def normalize_metro(metro: str) -> tuple[str, str]:
@@ -75,36 +87,48 @@ def primary_market_tenants(supabase: Client) -> dict[str, dict[str, object]]:
         )
     if not markets:
         raise ValueError("No primary-location metros are configured.")
+    return markets
 
+
+def explicit_markets(metros: Iterable[str]) -> dict[str, dict[str, object]]:
+    """Build market-only discovery targets without inventing tenant tracking links."""
+    markets: dict[str, dict[str, object]] = {}
+    for raw_metro in metros:
+        metro, metro_key = normalize_metro(raw_metro)
+        markets.setdefault(metro_key, {"metro": metro, "tenant_ids": []})
+    if not markets:
+        raise ValueError("At least one --metro value is required.")
     return markets
 
 
 def market_is_fresh(supabase: Client, metro_key: str) -> bool:
-    """Return whether a market completed discovery within the cache window."""
+    """Return whether a market discovery completed within the cache window."""
     rows = (
         supabase.table("competitor_market_scrapes")
-        .select("completed_at")
+        .select("last_completed_at, last_status")
         .eq("metro_key", metro_key)
         .limit(1)
         .execute()
         .data
     )
-    if not rows:
+    if not rows or rows[0].get("last_status") != "complete" or not rows[0].get("last_completed_at"):
         return False
-
-    completed_at = datetime.datetime.fromisoformat(
-        rows[0]["completed_at"].replace("Z", "+00:00")
-    )
+    completed_at = datetime.datetime.fromisoformat(rows[0]["last_completed_at"].replace("Z", "+00:00"))
     return (datetime.datetime.now(datetime.timezone.utc) - completed_at).days < MARKET_CACHE_DAYS
 
 
-def mark_market_complete(supabase: Client, metro: str, metro_key: str, completed_at: str) -> None:
-    """Record a fully completed market discovery, including zero-result runs."""
+def mark_market_status(
+    supabase: Client, metro: str, metro_key: str, status: str, completed_at: str | None, error: str | None = None,
+) -> None:
+    """Persist compact market-discovery state rather than a historical run log."""
     supabase.table("competitor_market_scrapes").upsert(
         {
             "metro": metro,
             "metro_key": metro_key,
-            "completed_at": completed_at,
+            "last_status": status,
+            "last_completed_at": completed_at,
+            "last_error": error,
+            "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         },
         on_conflict="metro_key",
     ).execute()
@@ -132,13 +156,24 @@ def save_competitor(
     place_id: str,
     website: str | None,
     existing_id: str | None = None,
+    rating: float | None = None,
+    review_count: int | None = None,
 ) -> str:
-    """Insert or update a global competitor and return its ID."""
-    payload = {"name": name, "place_id": place_id, "website": website}
+    """Insert or refresh compact global competitor metadata."""
+    now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    payload = {
+        "name": name,
+        "place_id": place_id,
+        "website": website,
+        "rating": rating,
+        "review_count": review_count,
+        "reviews_checked_at": now_iso,
+        "last_discovered_at": now_iso,
+        "updated_at": now_iso,
+    }
     if existing_id:
         supabase.table("competitors").update(payload).eq("id", existing_id).execute()
         return existing_id
-
     result = supabase.table("competitors").insert(payload).execute()
     return result.data[0]["id"]
 
@@ -158,37 +193,6 @@ def record_competitor_market(
     ).execute()
 
 
-def sync_tenant_competitors(
-    supabase: Client, markets: dict[str, dict[str, object]]
-) -> int:
-    """Link every market competitor to every tenant with that primary metro.
-
-    Existing links are ignored instead of updated so an explicit tracked=False
-    choice is never overwritten by the scraper.
-    """
-    links: list[dict[str, str | bool]] = []
-    for metro_key, market in markets.items():
-        competitor_ids = market_competitor_ids(supabase, metro_key)
-        tenant_ids = market["tenant_ids"]
-        for tenant_id in tenant_ids:
-            for competitor_id in competitor_ids:
-                links.append(
-                    {
-                        "tenant_id": tenant_id,
-                        "competitor_id": competitor_id,
-                        "tracked": True,
-                    }
-                )
-
-    if not links:
-        return 0
-
-    supabase.table("tenant_competitors").upsert(
-        links,
-        on_conflict="tenant_id,competitor_id",
-        ignore_duplicates=True,
-    ).execute()
-    return len(links)
 
 
 # ---------------------------------------------------------------------------
@@ -272,20 +276,10 @@ def discover_market(supabase: Client, metro: str, metro_key: str, force: bool = 
                 place_id,
                 website,
                 existing["id"] if existing else None,
+                rating,
+                review_count,
             )
             record_competitor_market(supabase, competitor_id, metro, metro_key, now_iso)
-            supabase.table("competitor_snapshots").insert(
-                {
-                    "competitor_id": competitor_id,
-                    "captured_at": now_iso,
-                    "kind": "reviews",
-                    "payload": {
-                        "rating": rating,
-                        "review_count": review_count,
-                        "address": address,
-                    },
-                }
-            ).execute()
             competitor_ids.add(competitor_id)
             print(f"  {name} (rating={rating}, reviews={review_count})")
         except Exception as e:
@@ -293,8 +287,9 @@ def discover_market(supabase: Client, metro: str, metro_key: str, force: bool = 
             print(f"  Warning: competitor write failed for {name}: {e}")
 
     if completed:
-        mark_market_complete(supabase, metro, metro_key, now_iso)
+        mark_market_status(supabase, metro, metro_key, "complete", now_iso)
     else:
+        mark_market_status(supabase, metro, metro_key, "partial", None, "One or more Google Places queries or writes failed.")
         print(f"  {metro}: incomplete discovery was not cached.")
 
     return competitor_ids
@@ -333,19 +328,13 @@ def discover_mock_market(supabase: Client, metro: str, metro_key: str, force: bo
             mock["place_id"],
             mock["website"],
             existing["id"] if existing else None,
+            mock["rating"],
+            mock["review_count"],
         )
         record_competitor_market(supabase, competitor_id, metro, metro_key, now_iso)
-        supabase.table("competitor_snapshots").insert(
-            {
-                "competitor_id": competitor_id,
-                "captured_at": now_iso,
-                "kind": "reviews",
-                "payload": {"rating": mock["rating"], "review_count": mock["review_count"]},
-            }
-        ).execute()
         competitor_ids.add(competitor_id)
 
-    mark_market_complete(supabase, metro, metro_key, now_iso)
+    mark_market_status(supabase, metro, metro_key, "complete", now_iso)
     print(f"  {metro}: [Mock] observed {len(MOCK_COMPETITORS)} competitors")
     return competitor_ids
 
@@ -394,43 +383,20 @@ def enrich_competitors(supabase: Client, competitor_ids: Iterable[str]) -> int:
         mobile = is_mobile_friendly_proxy(soup)
         has_ssl = str(response.url).startswith("https://")
 
-        supabase.table("competitor_snapshots").insert(
-            {
-                "competitor_id": competitor_id,
-                "captured_at": now_iso,
-                "kind": "pricing",
-                "payload": {
-                    "has_online_booking": bool(has_booking),
-                    "booking_platform": booking_platform,
-                    "site_platform": site_platform,
-                    "has_ssl": has_ssl,
-                    "is_mobile_friendly": bool(mobile),
-                },
-            }
-        ).execute()
-
-        if instagram_url or facebook_url:
-            supabase.table("competitor_snapshots").insert(
-                {
-                    "competitor_id": competitor_id,
-                    "captured_at": now_iso,
-                    "kind": "ig",
-                    "payload": {
-                        "instagram_url": instagram_url,
-                        "facebook_url": facebook_url,
-                    },
-                }
-            ).execute()
-
-        if instagram_url and not comp.get("ig_handle"):
+        ig_handle = comp.get("ig_handle")
+        if instagram_url and not ig_handle:
             try:
                 ig_handle = instagram_url.split("instagram.com/")[1].rstrip("/").split("?")[0]
-                supabase.table("competitors").update({"ig_handle": ig_handle}).eq(
-                    "id", competitor_id
-                ).execute()
             except (IndexError, KeyError):
                 pass
-
+        supabase.table("competitors").update(
+            {
+                "booking_platform": booking_platform,
+                "website_checked_at": now_iso,
+                "ig_handle": ig_handle,
+                "updated_at": now_iso,
+            }
+        ).eq("id", competitor_id).execute()
         enriched += 1
         ig_handle = (
             comp.get("ig_handle")
@@ -472,54 +438,68 @@ def enrich_mock(supabase: Client, competitor_ids: Iterable[str]) -> int:
         if not details:
             continue
         booking_platform, ig_url, fb_url, site_platform = details
-        supabase.table("competitor_snapshots").insert(
+        ig_handle = ig_url.split("instagram.com/")[1].rstrip("/").split("?")[0] if ig_url else None
+        supabase.table("competitors").update(
             {
-                "competitor_id": comp["id"],
-                "captured_at": now_iso,
-                "kind": "pricing",
-                "payload": {
-                    "has_online_booking": booking_platform != "none",
-                    "booking_platform": booking_platform if booking_platform != "none" else None,
-                    "site_platform": site_platform,
-                    "has_ssl": True,
-                    "is_mobile_friendly": True,
-                },
+                "booking_platform": booking_platform if booking_platform != "none" else None,
+                "website_checked_at": now_iso,
+                "ig_handle": ig_handle,
+                "updated_at": now_iso,
             }
-        ).execute()
-        if ig_url or fb_url:
-            supabase.table("competitor_snapshots").insert(
-                {
-                    "competitor_id": comp["id"],
-                    "captured_at": now_iso,
-                    "kind": "ig",
-                    "payload": {"instagram_url": ig_url, "facebook_url": fb_url},
-                }
-            ).execute()
-        if ig_url:
-            ig_handle = ig_url.split("instagram.com/")[1].rstrip("/").split("?")[0]
-            supabase.table("competitors").update({"ig_handle": ig_handle}).eq(
-                "id", comp["id"]
-            ).execute()
+        ).eq("id", comp["id"]).execute()
         enriched += 1
         print(f"  {comp['name']}: booking={booking_platform}, ig={ig_url.split('instagram.com/')[1] if ig_url else 'none'}, platform={site_platform}")
 
     return enriched
+
+def mock_pricing_documents() -> dict[str, list[PageDocument]]:
+    """Load local website fixtures into the identical crawl persistence path."""
+    fixture_dir = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "pricing"
+    fixtures = {
+        "mock_place_002": ("static-menu.html", "https://serenityspa-mock.com/services"),
+        "mock_place_003": ("rendered-menu.html", "https://luxeaesthetics-mock.com/treatments"),
+        "mock_place_004": ("membership-package.html", "https://bloomwellness-mock.com/memberships"),
+        "mock_place_005": ("offer.html", "https://eliteskin-mock.com/offers"),
+    }
+    documents: dict[str, list[PageDocument]] = {}
+    for place_id, (filename, url) in fixtures.items():
+        html = (fixture_dir / filename).read_text()
+        soup = BeautifulSoup(html, "html.parser")
+        visible = " ".join(soup.stripped_strings)
+        documents[place_id] = [PageDocument(
+            url=url,
+            final_url=url,
+            title=soup.title.get_text(" ", strip=True) if soup.title else None,
+            html=html,
+            visible_text=visible,
+            content_sha256=hashlib.sha256(html.encode()).hexdigest(),
+            http_status=200,
+            render_mode="browser" if filename == "rendered-menu.html" else "http",
+        )]
+    return documents
 
 
 # ---------------------------------------------------------------------------
 # Batch entry point
 # ---------------------------------------------------------------------------
 
-def run_dashboard_scrape(mock: bool = False, force: bool = False) -> None:
-    """Scrape every unique primary-location market and synchronize tenant links."""
+def run_dashboard_scrape(
+    mock: bool = False,
+    force: bool = False,
+    metros: Iterable[str] | None = None,
+) -> None:
+    """Discover requested metros and crawl every discovered competitor website."""
+    if mock:
+        require_local_mock_target()
     supabase = get_supabase()
     try:
-        markets = primary_market_tenants(supabase)
+        markets = explicit_markets(metros) if metros is not None else primary_market_tenants(supabase)
     except ValueError as e:
         print(f"Error: {e}")
         sys.exit(1)
 
-    print(f"Dashboard Competitor Scrape — {len(markets)} market(s)")
+    source = "explicit metro override" if metros is not None else "tenant primary locations"
+    print(f"Dashboard Competitor Scrape — {len(markets)} market(s) from {source}")
     print("--- Stage 1: Discovery ---")
     discovered_ids: set[str] = set()
     for metro_key, market in sorted(markets.items()):
@@ -529,16 +509,32 @@ def run_dashboard_scrape(mock: bool = False, force: bool = False) -> None:
         else:
             discovered_ids.update(discover_market(supabase, metro, metro_key, force))
 
-    print("--- Stage 2: Enrichment ---")
+    print("--- Stage 2: Website enrichment ---")
     n_enriched = (
         enrich_mock(supabase, discovered_ids)
         if mock
         else enrich_competitors(supabase, discovered_ids)
     )
 
-    print("--- Stage 3: Tenant synchronization ---")
-    n_links = sync_tenant_competitors(supabase, markets)
+    print("--- Stage 3: Pricing crawl ---")
+    competitors = (
+        supabase.table("competitors")
+        .select("id, name, place_id, website")
+        .in_("id", sorted(discovered_ids))
+        .not_.is_("website", "null")
+        .execute()
+        .data
+        if discovered_ids
+        else []
+    )
+    mock_documents = mock_pricing_documents() if mock else None
+    print(f"  Crawling {len(competitors)} discovered competitor website(s).")
+    crawl_results = []
+    for index, competitor in enumerate(competitors, start=1):
+        print(f"  Pricing progress: competitor {index}/{len(competitors)}.")
+        crawl_results.append(crawl_competitor(supabase, competitor, force=force, mock_documents=mock_documents))
+    n_crawled = sum(status is not None for status in crawl_results)
     print(
         f"Done. {len(discovered_ids)} global competitors discovered, "
-        f"{n_enriched} enriched, {n_links} tenant-market links synchronized."
+        f"{n_enriched} enriched, {n_crawled} website crawls."
     )

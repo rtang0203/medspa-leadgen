@@ -82,16 +82,16 @@ python3 cli.py export
 
 ### Dashboard competitor scrape
 
-This separate batch command discovers nearby competitors and records their Google
-reviews, website platform, booking provider, and social links in the benchmark
-dashboard's Supabase database. It runs once across every distinct normalized
-`metro` configured on tenant primary locations; it does not accept a tenant or
-metro argument.
+This separate batch command discovers nearby competitors, updates compact Google
+review/website/booking metadata, and crawls every discovered website for
+source-backed public pricing. It defaults to every distinct normalized primary
+location `metro`, or accepts one or more explicit `--metro` values.
 
-Every practice is stored once by Google Place ID. `competitor_markets` records
-which markets returned it, then the batch synchronizes `tenant_competitors` for
-every tenant whose primary location is in that market. Existing `tracked=false`
-choices are preserved. This does not affect the SQLite lead-generation flow.
+Competitors are global Google Place entities; `competitor_markets` records every
+market in which each one was discovered. There is no tenant-specific tracking
+gate: a discovered competitor website is crawl-eligible regardless of whether a
+tenant already exists in that market. This does not affect the SQLite
+lead-generation flow.
 
 Primary-location metros must use an explicit normalized value such as
 `Chicago, IL`; do not use full street addresses as markets.
@@ -106,14 +106,42 @@ python3 cli.py dashboard-scrape
 # Bypass the seven-day completed-market discovery cache.
 python3 cli.py dashboard-scrape --force
 
-# Deterministic fixture data for every seeded market; no Google key required.
+# Seed a market without requiring a tenant at that metro. Every discovered
+# competitor website is also eligible for the pricing crawl.
+python3 cli.py dashboard-scrape --metro "Chicago, IL" --force
+
+# Seed several markets in one batch.
+python3 cli.py dashboard-scrape --metro "Chicago, IL" --metro "Milwaukee, WI" --force
+
+# Deterministic fixture data is restricted to a local Supabase instance; it
+# refuses remote URLs so mock competitors can never pollute Market Intel.
 python3 cli.py dashboard-scrape --mock
 ```
 
-A market is cached only after all three Google Places queries and their writes
-complete. The cache is independent of individual competitor snapshots, so an
-empty market is cached correctly and a partial failure is retried next run.
+A completed market discovery is cached for seven days. The compact discovery
+state records complete, partial, and failed runs; a partial/failed discovery is
+retried rather than treated as fresh.
 
+Pricing refreshes are independently due every seven days, even when market
+discovery remains cached. Install Chromium once for the requests-first
+JavaScript fallback:
+
+```bash
+python3 -m playwright install chromium
+```
+
+The crawler privately archives only successful HTML pages that produce a
+published offering or admin-review candidate. It auto-publishes only an exact
+public price whose item name and display price occur together in captured
+evidence. Ambiguous prices, unknown currencies, unmapped price-less services,
+and unbranded booking-provider results remain pending for an administrator. No
+scheduler is installed: operators run this batch weekly.
+
+
+Live pricing crawls print a competitor counter, each selected page fetch or
+render, extraction count, and a per-competitor completion summary. A page can
+wait up to 20 seconds for HTTP or 30 seconds for browser navigation; these
+messages distinguish an active crawl from a stalled process.
 
 ---
 

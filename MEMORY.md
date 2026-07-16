@@ -114,3 +114,14 @@
 
 - Added `dashboard-scrape` as a Supabase-only batch command that preserves the SQLite lead-generation flow; competitors and scrape snapshots are global by Google Place ID, while `tenant_competitors` holds each tenant's monitoring choice.
 - `dashboard-scrape` now batches every distinct primary-location metro once; `competitor_markets` retains global market provenance, completed-market cache markers prevent redundant Places calls, and tenant links synchronize afterward without overriding `tracked=false`.
+
+## 2026-07-11: Competitor pricing intelligence
+
+- Added a bounded, requests-first website crawler with private HTML archive records; exact source prices auto-publish only after evidence validation, while ambiguous candidates require admin review.
+- Website pricing refreshes independently every seven days; automated scheduling was deliberately deferred. Verified fixture parsing and `dashboard-scrape --mock --force`.
+
+## 2026-07-15: Global Market Intel cutover
+
+- Removed tenant-driven competitor tracking from ingestion: `dashboard-scrape` now crawls every discovered website and supports repeatable `--metro` seeding without a tenant.
+- Current facts upsert by competitor/offering key, unchanged pages update `last_seen_at`, only evidence-bearing HTML is archived, and crawl failures persist as structured run errors.
+- Mock dashboard fixtures are now hard-blocked against remote Supabase URLs; removed the five accidental `mock_place_*` records and their cascade data from the shared Market Intel project.

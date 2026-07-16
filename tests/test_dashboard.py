@@ -6,9 +6,12 @@ import pytest
 from medspa_leads.dashboard import (
     MARKET_CACHE_DAYS,
     market_is_fresh,
+    explicit_markets,
     normalize_metro,
+    require_local_mock_target,
     primary_market_tenants,
 )
+from medspa_leads.competitor_pricing import CRAWL_FRESH_DAYS, crawl_is_fresh
 
 
 class FakeQuery:
@@ -19,6 +22,12 @@ class FakeQuery:
         return self
 
     def eq(self, _column, _value):
+        return self
+
+    def in_(self, _column, _values):
+        return self
+
+    def order(self, _column, desc=False):
         return self
 
     @property
@@ -43,6 +52,28 @@ class FakeSupabase:
     def table(self, name):
         self.table_calls.append(name)
         return FakeQuery(self.tables[name])
+
+
+def test_explicit_markets_normalize_and_deduplicate_without_tenant_links():
+    assert explicit_markets([" Chicago,   IL ", "Milwaukee, WI", "chicago, il"]) == {
+        "chicago, il": {"metro": "Chicago, IL", "tenant_ids": []},
+        "milwaukee, wi": {"metro": "Milwaukee, WI", "tenant_ids": []},
+    }
+
+
+@pytest.mark.parametrize("metros", [[], ["   "]])
+def test_explicit_markets_rejects_empty_or_blank_values(metros):
+    with pytest.raises(ValueError, match="metro"):
+        explicit_markets(metros)
+
+
+def test_mock_dashboard_writes_require_local_supabase(monkeypatch):
+    monkeypatch.setattr("medspa_leads.dashboard.config.SUPABASE_URL", "https://project.supabase.co")
+    with pytest.raises(ValueError, match="local Supabase"):
+        require_local_mock_target()
+
+    monkeypatch.setattr("medspa_leads.dashboard.config.SUPABASE_URL", "http://127.0.0.1:54321")
+    require_local_mock_target()
 
 
 def test_normalize_metro_collapses_whitespace_and_casefolds_key():
@@ -98,7 +129,7 @@ def test_market_freshness_uses_completed_market_scrape_time():
         days=MARKET_CACHE_DAYS - 1
     )
     supabase = FakeSupabase(
-        {"competitor_market_scrapes": [{"completed_at": completed_at.isoformat()}]}
+        {"competitor_market_scrapes": [{"last_completed_at": completed_at.isoformat(), "last_status": "complete"}]}
     )
 
     assert market_is_fresh(supabase, "chicago, il")
@@ -110,7 +141,22 @@ def test_market_freshness_expires_after_cache_window():
         days=MARKET_CACHE_DAYS
     )
     supabase = FakeSupabase(
-        {"competitor_market_scrapes": [{"completed_at": completed_at.isoformat()}]}
+        {"competitor_market_scrapes": [{"last_completed_at": completed_at.isoformat(), "last_status": "complete"}]}
     )
 
     assert not market_is_fresh(supabase, "chicago, il")
+
+
+def test_website_refresh_is_independent_of_market_discovery_cache():
+    completed_at = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+        days=CRAWL_FRESH_DAYS - 1
+    )
+    fresh = FakeSupabase({"competitor_crawl_runs": [{"completed_at": completed_at.isoformat()}]})
+    stale = FakeSupabase({"competitor_crawl_runs": [{"completed_at": (completed_at - datetime.timedelta(days=CRAWL_FRESH_DAYS)).isoformat()}]})
+
+    assert crawl_is_fresh(fresh, "competitor-a")
+    assert not crawl_is_fresh(stale, "competitor-a")
+
+
+def test_missing_completed_crawl_is_due_for_website_refresh():
+    assert not crawl_is_fresh(FakeSupabase({"competitor_crawl_runs": []}), "competitor-a")
